@@ -21,7 +21,7 @@ jobs:
       matrix:
         go: [oldstable, stable]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
@@ -46,7 +46,7 @@ jobs:
     name: fuzz against the reference model
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version: stable, cache: false }
       - run: go test -run='^$' -fuzz=FuzzAgainstReference -fuzztime=90s ./internal/book
@@ -59,7 +59,7 @@ jobs:
   vulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version: stable, cache: false }
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -68,7 +68,7 @@ jobs:
     name: e2e (load, restart, kill -9)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version: stable, cache: false }
       - run: make build
@@ -79,7 +79,7 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version: stable, cache: false }
       - name: benchmarks
@@ -102,7 +102,7 @@ jobs:
     name: docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build --build-arg VERSION=${GITHUB_SHA::7} -t matching-engine:ci .
       - name: smoke test, including a restart that must keep the order
         run: |
