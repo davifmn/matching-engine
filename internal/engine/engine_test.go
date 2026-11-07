@@ -187,8 +187,8 @@ func TestJournalFailureStopsTheInstrument(t *testing.T) {
 	if _, err := e.Submit(ctx, "PETR4", limit(book.Buy, 1, 1)); !errors.Is(err, ErrStopped) {
 		t.Fatalf("instrument kept accepting orders: %v", err)
 	}
-	if err := e.Ready(); err == nil {
-		t.Fatal("Ready() = nil with a stopped instrument")
+	if err := e.Ready(); !errors.Is(err, ErrStopped) {
+		t.Fatalf("Ready() = %v with a stopped instrument", err)
 	}
 	if _, err := e.Submit(ctx, "VALE3", limit(book.Buy, 1, 1)); err != nil {
 		t.Fatalf("other instruments must keep working: %v", err)

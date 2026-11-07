@@ -9,8 +9,9 @@ sequence numbers. It uses only the standard library.
 
 - **Order types:** limit and market orders; GTC, IOC and FOK; post-only; cancel and modify
   (a quantity reduction keeps queue priority); self-trade prevention in three modes.
-- **Fast:** the book makes zero allocations in steady state and handles a realistic order
-  flow in a few hundred nanoseconds per command ([benchmarks](docs/benchmarks.md)).
+- **Fast:** the book makes zero allocations in steady state and takes 136 ns per command
+  of a realistic order flow (p99 360 ns). The whole engine with a durable journal handles
+  about 80,000 commands/s on a 2-vCPU CI runner ([benchmarks](docs/benchmarks.md)).
 - **Durable:** an order is acknowledged only after its batch is fsynced. A restart, or a
   `kill -9` under load, rebuilds the exact same book. CI checks both.
 - **Exact:** prices and quantities are integer ticks and lots, with decimal strings on the
@@ -86,6 +87,17 @@ off the tick grid, which is never rounded); 404 for an unknown instrument or ord
 when the book refuses the order (post-only would cross, FOK cannot fill); 503 when the
 instrument is unavailable, in which case the outcome is unknown and the order should be
 checked before retrying.
+
+## Performance
+
+Medians on a 2-vCPU GitHub Actions runner ([details and method](docs/benchmarks.md)):
+
+| | |
+|---|---|
+| Book, realistic mix of commands | 136 ns per command, 0 allocations; p50 144 ns, p99 360 ns |
+| Take the top of the book | 49 ns |
+| Engine, journal fsynced per batch, 32 clients | 12 µs per command (~82,000/s) |
+| HTTP, 16 clients, durable journal | 11,700 req/s; p50 1.2 ms, p99 3.9 ms |
 
 ## How it is tested
 

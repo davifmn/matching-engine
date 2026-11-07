@@ -8,8 +8,9 @@ Every order reads and changes the book of its instrument. Many HTTP handlers run
 same time, so something has to serialize access. The options:
 
 1. **A mutex around the book.** Simple, but every handler contends for the lock. The
-   critical section is short, yet lock hand-offs under contention cost more than the
-   matching itself (~100–300 ns per command, see `docs/benchmarks.md`).
+   critical section is short (about 140 ns per command, see `docs/benchmarks.md`), so
+   under contention the lock hand-offs can cost more than the matching they protect, and
+   there is no natural point to batch journal writes.
 2. **Lock-free structures.** A concurrent skip list or tree. Hard to get right, hard to
    test, and matching needs several structures (levels, queues, ID index) to change
    atomically together, which lock-free designs cannot give cheaply.

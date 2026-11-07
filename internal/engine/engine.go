@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/davifmn/matching-engine/internal/book"
@@ -166,14 +167,12 @@ func (e *Engine) Lookup(ctx context.Context, symbol string, id book.OrderID) (in
 	return rep.info, rep.found, err
 }
 
-// Ready returns an error if any instrument has stopped.
+// Ready returns an error if any instrument has stopped, from the moment it decided to
+// stop: a client that got ErrStopped never sees Ready() == nil afterwards.
 func (e *Engine) Ready() error {
 	for _, sym := range e.symbols {
-		s := e.shards[sym]
-		select {
-		case <-s.stopped:
-			return fmt.Errorf("%s: %w", sym, s.stopErr())
-		default:
+		if s := e.shards[sym]; s.dead.Load() {
+			return s.err
 		}
 	}
 	return nil
@@ -238,7 +237,8 @@ type shard struct {
 	in       chan *request
 	quit     chan struct{}
 	stopped  chan struct{}
-	err      error // why run returned; read only after stopped is closed
+	dead     atomic.Bool // set, after err, as soon as the shard decides to stop
+	err      error       // why it stopped; read only after seeing dead or stopped
 	closeErr error
 
 	closeOnce sync.Once
@@ -308,6 +308,9 @@ func (s *shard) replay(payload []byte) error {
 }
 
 func (s *shard) call(ctx context.Context, r *request) (reply, error) {
+	if s.dead.Load() {
+		return reply{}, s.err
+	}
 	r.reply = make(chan reply, 1)
 	r.enqueued = time.Now()
 	select {
@@ -331,8 +334,16 @@ func (s *shard) call(ctx context.Context, r *request) (reply, error) {
 	}
 }
 
+// markDead records why the shard stops. Only the shard goroutine calls it.
+func (s *shard) markDead(err error) {
+	if !s.dead.Load() {
+		s.err = err
+		s.dead.Store(true)
+	}
+}
+
 func (s *shard) stopErr() error {
-	if s.err != nil {
+	if s.dead.Load() {
 		return s.err
 	}
 	return fmt.Errorf("%s: %w", s.symbol, ErrStopped)
@@ -357,8 +368,7 @@ func (s *shard) run() {
 				}
 			}
 			if err := s.process(batch); err != nil {
-				s.err = err
-				return
+				return // process marked the shard dead
 			}
 			clear(batch)
 		}
@@ -366,7 +376,8 @@ func (s *shard) run() {
 }
 
 func (s *shard) shutdown() {
-	err := s.stopErr()
+	s.markDead(fmt.Errorf("%s: %w", s.symbol, ErrStopped))
+	err := s.err
 	for {
 		select {
 		case r := <-s.in:
@@ -432,6 +443,7 @@ func (s *shard) process(batch []*request) error {
 func (s *shard) failBatch(batch []*request, cause error) error {
 	err := fmt.Errorf("%s: %w: journal: %v", s.symbol, ErrStopped, cause)
 	s.log.Error("journal failed, stopping the instrument", "error", cause)
+	s.markDead(err) // before any reply, so Ready() already fails when clients see the error
 	for _, r := range batch {
 		if r.reply != nil {
 			r.reply <- reply{err: err}

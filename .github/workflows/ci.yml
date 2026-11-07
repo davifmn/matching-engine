@@ -21,8 +21,8 @@ jobs:
       matrix:
         go: [oldstable, stable]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           cache: false # no dependencies to cache
@@ -46,11 +46,11 @@ jobs:
     name: fuzz against the reference model
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: stable, cache: false }
       - run: go test -run='^$' -fuzz=FuzzAgainstReference -fuzztime=90s ./internal/book
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: fuzz-failures
@@ -59,8 +59,8 @@ jobs:
   vulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: stable, cache: false }
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
@@ -68,8 +68,8 @@ jobs:
     name: e2e (load, restart, kill -9)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: stable, cache: false }
       - run: make build
       - run: ./scripts/e2e.sh
@@ -79,8 +79,8 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with: { go-version: stable, cache: false }
       - name: benchmarks
         run: go test -run='^$' -bench=. -benchmem -count=6 ./internal/... | tee bench.txt
@@ -93,7 +93,7 @@ jobs:
             go run golang.org/x/perf/cmd/benchstat@latest bench.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bench
           path: bench.txt
@@ -102,7 +102,7 @@ jobs:
     name: docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build --build-arg VERSION=${GITHUB_SHA::7} -t matching-engine:ci .
       - name: smoke test, including a restart that must keep the order
         run: |
