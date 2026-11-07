@@ -1,0 +1,8 @@
+.git
+.github
+bin
+data
+docs
+*.test
+bench.txt
+coverage.out
