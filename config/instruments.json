@@ -1,0 +1,5 @@
+[
+  {"symbol": "PETR4", "description": "Petrobras PN (equity, round lots of 100)", "tick_size": "0.01", "lot_size": "100"},
+  {"symbol": "WINZ26", "description": "Mini Ibovespa future, Dec 2026 (tick of 5 points)", "tick_size": "5", "lot_size": "1"},
+  {"symbol": "BTC-USD", "description": "Bitcoin against US dollar (fractional quantities)", "tick_size": "0.01", "lot_size": "0.0001"}
+]
