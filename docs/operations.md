@@ -81,6 +81,41 @@ work on its read loop. They are disconnected, so matching is unaffected; tell th
 Check `matching_journal_commit_seconds` (disk) against `matching_batch_commands` (load).
 Noisy neighbours on shared disks are the usual cause. Use a dedicated volume.
 
+## Drop copy
+
+`dropcopy` (ADR 0005) runs next to matchd with **read-only** access to the journal
+directory: a sidecar container sharing the volume, as in `docker-compose.yml`. It runs as the
+same user as matchd, because journals are created with mode 0600.
+
+| Flag | Environment | Default | |
+|---|---|---|---|
+| `-data` | `DROPCOPY_DATA` | `/var/lib/matchd` | matchd's journal directory (read only) |
+| `-state` | `DROPCOPY_STATE` | `/var/lib/dropcopy` | cursors, one `<SYMBOL>.cursor` per instrument (keep on a persistent volume) |
+| `-instruments` | `DROPCOPY_INSTRUMENTS` | `/etc/matchd/instruments.json` | the same file as matchd |
+| `-symbols` | `DROPCOPY_SYMBOLS` | every instrument with a `currency` | instruments to publish |
+| `-brokers` | `DROPCOPY_BROKERS` | `localhost:9092` | Kafka bootstrap servers |
+| `-topic` | `DROPCOPY_TOPIC` | `trades.executed` | create it beforehand; messages are keyed by symbol |
+| `-addr` | `DROPCOPY_ADDR` | `:9100` | `/metrics` and `/healthz` |
+
+| Metric | Meaning |
+|---|---|
+| `dropcopy_journal_bytes_behind` | journal written by matchd and not yet read: **the** alert (> 0 for minutes = settlement is behind) |
+| `dropcopy_publish_failures_total` | failed attempts to publish (each one is retried; Kafka down if it keeps rising) |
+| `dropcopy_trades_published_total` | trades published |
+| `dropcopy_trades_anonymous_total` | trades not published because a side had no account (should be 0 in a venue where every order has an account) |
+| `dropcopy_cursor_seq` | last journal command whose trades are published |
+
+**The drop copy exits with `was the journal replaced?`.** Its cursor says it published trades up
+to command N, but the journal now has fewer commands: it was restored from an old backup or
+replaced. Publishing on would repeat or skip trade ids. Find out which journal is right,
+then either restore it, or, if the new journal is a deliberate fresh start, delete the
+instrument's cursor file (the consumer will see the new ids from 1 again; make sure it can
+tell them apart, for example with a new symbol).
+
+**`dropcopy_journal_bytes_behind` grows.** Check `dropcopy_publish_failures_total` and the
+logs (`publish failed, retrying`): Kafka is unreachable, the topic is missing, or the
+producer is not authorized. Nothing is lost while it waits; it catches up by itself.
+
 ## Backups
 
 The journal is append-only, so copying it while the server runs is safe. A copy can end

@@ -485,14 +485,18 @@ func (s *shard) handle(r *request) {
 	}
 }
 
-func (s *shard) apply(c *Command) []book.Event {
+func (s *shard) apply(c *Command) []book.Event { return apply(s.book, c) }
+
+// apply is the one place where a command changes a book: the engine and Replica both use
+// it, which is what makes a replica see exactly the engine's events.
+func apply(b *book.Book, c *Command) []book.Event {
 	switch c.Kind {
 	case KindSubmit:
-		return s.book.Submit(c.Order)
+		return b.Submit(c.Order)
 	case KindCancel:
-		return s.book.Cancel(c.ID)
+		return b.Cancel(c.ID)
 	default:
-		return s.book.Modify(c.ID, c.Price, c.Qty)
+		return b.Modify(c.ID, c.Price, c.Qty)
 	}
 }
 

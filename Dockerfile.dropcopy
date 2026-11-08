@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+# The drop copy (cmd/dropcopy, its own Go module). Build from the repository root:
+#   docker build -f Dockerfile.dropcopy -t matching-engine-dropcopy .
+
+FROM --platform=$BUILDPLATFORM golang:1.27 AS build
+WORKDIR /src
+COPY . .
+WORKDIR /src/cmd/dropcopy
+RUN go mod download
+ARG TARGETOS TARGETARCH VERSION=dev
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/dropcopy . \
+ && mkdir -p /out/state
+
+# Same user as matchd (uid 65532), so it can read the journals matchd writes with mode 0600.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/dropcopy /usr/local/bin/dropcopy
+COPY config/instruments.json /etc/matchd/instruments.json
+COPY --from=build --chown=65532:65532 /out/state /var/lib/dropcopy
+ENV DROPCOPY_DATA=/var/lib/matchd \
+    DROPCOPY_STATE=/var/lib/dropcopy \
+    DROPCOPY_INSTRUMENTS=/etc/matchd/instruments.json \
+    DROPCOPY_ADDR=:9100
+EXPOSE 9100
+VOLUME ["/var/lib/dropcopy"]
+USER nonroot:nonroot
+ENTRYPOINT ["/usr/local/bin/dropcopy"]

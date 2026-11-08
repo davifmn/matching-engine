@@ -1,0 +1,63 @@
+# matchd + its drop copy + Kafka. The drop copy reads matchd's journals from the shared
+# volume (read only) and publishes every trade to the topic trades.executed.
+#   docker compose up --build
+#   bash scripts/dropcopy_e2e.sh
+# settlement-ledger's docker-compose.exchange.yml runs the same pieces next to the ledger.
+name: matching-engine
+
+services:
+  matchd:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - journals:/var/lib/matchd
+
+  kafka:
+    image: apache/kafka:4.3.2
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      retries: 30
+
+  # Topics are created up front, as in production (the ledger creates the same topic
+  # with the same partitions when it runs first).
+  topics:
+    image: apache/kafka:4.3.2
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "kafka:9092", "--create",
+                 "--if-not-exists", "--topic", "trades.executed", "--partitions", "3", "--replication-factor", "1"]
+    restart: "no"
+
+  dropcopy:
+    build:
+      context: .
+      dockerfile: Dockerfile.dropcopy
+    environment:
+      DROPCOPY_BROKERS: kafka:9092
+      DROPCOPY_SYMBOLS: SAP
+    ports:
+      - "9100:9100"
+    volumes:
+      - journals:/var/lib/matchd:ro
+      - dropcopy-state:/var/lib/dropcopy
+    depends_on:
+      matchd: { condition: service_started } # a journal that does not exist yet is just empty
+      topics: { condition: service_completed_successfully }
+    restart: on-failure
+
+volumes:
+  journals:
+  dropcopy-state:

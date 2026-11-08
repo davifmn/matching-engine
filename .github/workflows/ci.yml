@@ -76,6 +76,45 @@ jobs:
         env:
           DURATION: 15s
 
+  dropcopy:
+    name: dropcopy module (its own go.mod, with the Kafka client)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cmd/dropcopy
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: cmd/dropcopy/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go build -o /tmp/dropcopy . && /tmp/dropcopy -version
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: govulncheck (the Kafka client and its dependencies)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  dropcopy-e2e:
+    name: e2e of the drop copy (Kafka, kill -9 of each process)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/dropcopy_e2e.sh
+      - name: logs
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: scan the drop copy image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: matching-engine-dropcopy:latest
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   bench:
     runs-on: ubuntu-latest
     steps:

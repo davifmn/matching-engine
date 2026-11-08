@@ -281,7 +281,7 @@ func (b *Book) match(o *Order) (stopped bool) {
 			b.touch(opp.side, lvl)
 			b.emit(Event{
 				Kind: EventTrade, Order: o.ID, Side: o.Side, Price: lvl.price, Qty: q,
-				Leaves: o.Qty, Maker: m.id, MakerLeaves: m.qty,
+				Leaves: o.Qty, Maker: m.id, MakerLeaves: m.qty, Owner: o.Owner, MakerOwner: m.owner,
 			})
 			if m.qty == 0 {
 				b.remove(m) // frees the level too when m was its last order

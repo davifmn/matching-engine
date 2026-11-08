@@ -7,6 +7,10 @@ price-time priority, one single-threaded book per instrument, a write-ahead jour
 group commit, crash recovery by deterministic replay, and incremental market data with
 sequence numbers. It uses only the standard library.
 
+Its trades are settled by [settlement-ledger](https://github.com/davifmn/settlement-ledger):
+a **drop copy** follows the engine's journal and publishes every trade, with the accounts
+of both sides, to Kafka ([ADR 0005](docs/adr/0005-drop-copy.md)).
+
 - **Order types:** limit and market orders; GTC, IOC and FOK; post-only; cancel and modify
   (a quantity reduction keeps queue priority); self-trade prevention in three modes.
 - **Fast:** the book makes zero allocations in steady state and takes 136 ns per command
@@ -20,12 +24,19 @@ sequence numbers. It uses only the standard library.
   on a deliberately naive reference book and requires identical events, event by event.
 - **Operable:** Prometheus metrics, JSON logs, health and readiness probes, graceful
   shutdown, a distroless container, a [runbook](docs/operations.md).
+- **Settled downstream:** the drop copy replays the journal into its own copy of the book,
+  so it sees exactly the engine's trades, with ids that survive any restart. CI kills each
+  process with `kill -9` and checks that no trade is missing on the topic.
 
 ```
  HTTP/JSON ─▶ api ─▶ queue ─▶ ┌ shard PETR4 (one goroutine) ─────────────────┐
                               │ batch ─▶ journal (1 write + 1 fsync) ─▶ book │ ─▶ replies
  SSE ◀── market data ◀────────┤ level changes + trades, seq numbered         │
-                              └──────────────────────────────────────────────┘
+                              └───────────────────┬──────────────────────────┘
+                                                  │ PETR4.wal (read only)
+ settlement-ledger ◀── Kafka trades.executed ◀── dropcopy: replays the journal into its own book,
+                       (key = symbol)            publishes each trade with both accounts, then
+                                                 saves its cursor (at least once, stable ids)
 ```
 
 See **[docs/architecture.md](docs/architecture.md)** for the life of an order, the
@@ -33,7 +44,8 @@ matching rules and the failure model, and the ADRs for the main decisions:
 [single writer](docs/adr/0001-single-writer.md) ·
 [price levels](docs/adr/0002-price-levels.md) ·
 [fixed point](docs/adr/0003-fixed-point.md) ·
-[journal and group commit](docs/adr/0004-journal.md).
+[journal and group commit](docs/adr/0004-journal.md) ·
+[drop copy](docs/adr/0005-drop-copy.md).
 
 ## Quick start
 
@@ -111,8 +123,10 @@ Medians on a 2-vCPU GitHub Actions runner ([details and method](docs/benchmarks.
 | HTTP | Order lifecycle, rejections and status codes, input validation, SSE stream, metrics |
 | Binary | `cmd/matchd` test: start, trade, SIGTERM, restart, identical book |
 | End to end | `scripts/e2e.sh` in CI: 15 s of `loadgen`, graceful restart, `kill -9` under load, recovery, identical book |
-| Container | Docker build, smoke test across `docker stop`/`start`, Trivy scan |
-| Supply chain | `go vet`, staticcheck, govulncheck; no third-party modules |
+| Drop copy | A replica fed with the journal returns exactly the engine's events and digest over 3,000 commands. `journal.ReadFrom` at every cut point of a record being written: it waits and never modifies the file. The follower against an in-process engine: ids equal the engine's; a restart publishes only what is new; a crash before the cursor is saved republishes with the same ids; it keeps up across an engine restart; a broker outage delays but loses nothing; a replaced journal stops it |
+| Drop copy end to end | `scripts/dropcopy_e2e.sh` in CI, with docker compose and Kafka: `kill -9` of the drop copy and later of matchd during trading, then every trade id the engine reported must be on the topic, none missing and none invented |
+| Container | Docker build, smoke test across `docker stop`/`start`, Trivy scan of both images |
+| Supply chain | `go vet`, staticcheck, govulncheck; no third-party modules in the engine (the drop copy's module has one: the Kafka client) |
 
 ```sh
 make race    # all tests with the race detector
@@ -127,6 +141,8 @@ make lint vuln
 ```
 cmd/matchd        server: flags/env config, graceful shutdown
 cmd/loadgen       HTTP load generator with latency percentiles
+cmd/dropcopy      drop copy to Kafka (its own Go module: the only third-party dependency)
+internal/dropcopy journal follower, trade messages, cursor (no Kafka code)
 internal/book     the order book (no I/O, no goroutines, no allocations)
 internal/engine   per-instrument goroutines, group commit, replay, market data
 internal/journal  checksummed append-only log
@@ -136,6 +152,7 @@ internal/metrics  Prometheus text exposition
 internal/flow     synthetic order flow; internal/latency: percentile histogram
 docs/             architecture, ADRs, benchmarks, operations
 scripts/e2e.sh    restart and crash recovery test of the real binaries
+scripts/dropcopy_e2e.sh  matchd + dropcopy + Kafka with kill -9 of each (docker compose)
 ```
 
 ## License

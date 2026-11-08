@@ -116,3 +116,26 @@ func TestLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestCurrencyIsOptionalButMustBeAnISOCode(t *testing.T) {
+	base := Spec{Symbol: "SAP", TickSize: MustDecimal("0.01"), LotSize: MustDecimal("1")}
+	for currency, ok := range map[string]bool{"": true, "EUR": true, "eur": false, "EURO": false, "E1R": false} {
+		s := base
+		s.Currency = currency
+		if err := s.Validate(); (err == nil) != ok {
+			t.Errorf("currency %q: Validate() = %v", currency, err)
+		}
+	}
+}
+
+func TestTheShippedConfigurationLoads(t *testing.T) {
+	specs, err := Load("../../config/instruments.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range specs {
+		if s.Currency == "" {
+			t.Errorf("%s has no currency", s.Symbol)
+		}
+	}
+}

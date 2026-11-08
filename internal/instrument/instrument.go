@@ -127,9 +127,15 @@ type Spec struct {
 	Description string  `json:"description,omitempty"`
 	TickSize    Decimal `json:"tick_size"` // price increment
 	LotSize     Decimal `json:"lot_size"`  // quantity increment
+	// Currency of the price (ISO 4217), for whoever settles the trades. Matching itself
+	// does not use it, so it is optional.
+	Currency string `json:"currency,omitempty"`
 }
 
-var symbolRE = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._-]{0,19}$`)
+var (
+	symbolRE   = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._-]{0,19}$`)
+	currencyRE = regexp.MustCompile(`^[A-Z]{3}$`)
+)
 
 // Validate checks the symbol (it also names the journal file, so it must be a safe file
 // name) and the increments.
@@ -139,6 +145,9 @@ func (s Spec) Validate() error {
 	}
 	if s.TickSize.IsZero() || s.LotSize.IsZero() {
 		return fmt.Errorf("%s: tick_size and lot_size must be greater than zero", s.Symbol)
+	}
+	if s.Currency != "" && !currencyRE.MatchString(s.Currency) {
+		return fmt.Errorf("%s: currency %q is not a three-letter ISO 4217 code", s.Symbol, s.Currency)
 	}
 	return nil
 }

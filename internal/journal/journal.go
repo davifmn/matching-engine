@@ -41,6 +41,9 @@ var (
 	// ErrCorrupt means a damaged record is followed by more data, so it is not a torn
 	// tail and cutting it off would lose acknowledged commands.
 	ErrCorrupt = errors.New("journal: corrupt record")
+	// ErrShrunk means the journal is now shorter than a follower's position: it was
+	// replaced or truncated past a record the follower had already read.
+	ErrShrunk = errors.New("journal: file is shorter than the read position")
 
 	castagnoli = crc32.MakeTable(crc32.Castagnoli)
 )
@@ -183,6 +186,72 @@ func Replay(path string, fn func(payload []byte) error) (Stats, error) {
 		st.Records++
 		st.Bytes = end
 	}
+}
+
+// ReadFrom calls fn for each complete record that starts at or after offset, at most
+// limit records (0 = no limit), and returns the offset after the last one it read.
+//
+// Unlike Replay it never modifies the file, so it can follow the journal of a running
+// engine: a record that is not completely there (still being written, or a torn tail
+// that the engine will cut off when it restarts) ends the read, and the next call
+// resumes from it. A damaged record followed by more data is ErrCorrupt, as in Replay.
+// A missing file is an empty journal.
+func ReadFrom(path string, offset int64, limit int, fn func(payload []byte) error) (next int64, err error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) && offset == 0 {
+		return 0, nil
+	}
+	if err != nil {
+		return offset, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return offset, err
+	}
+	size := info.Size()
+	if size < offset {
+		return offset, fmt.Errorf("%w: %d bytes, position %d", ErrShrunk, size, offset)
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return offset, err
+	}
+
+	r := bufio.NewReaderSize(f, 1<<20)
+	var header [headerSize]byte
+	payload := make([]byte, 0, 256)
+	for records := 0; limit == 0 || records < limit; records++ {
+		if size-offset < headerSize {
+			return offset, nil // nothing more, or a header still being written
+		}
+		if _, err := io.ReadFull(r, header[:]); err != nil {
+			return offset, err
+		}
+		n := int64(binary.LittleEndian.Uint32(header[0:4]))
+		sum := binary.LittleEndian.Uint32(header[4:8])
+		if n > MaxRecord {
+			return offset, fmt.Errorf("%w at offset %d: length %d", ErrCorrupt, offset, n)
+		}
+		end := offset + headerSize + n
+		if end > size {
+			return offset, nil // payload still being written
+		}
+		payload = payload[:n]
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return offset, err
+		}
+		if crc32.Checksum(payload, castagnoli) != sum {
+			if end == size {
+				return offset, nil // the last record: possibly half written; try again later
+			}
+			return offset, fmt.Errorf("%w at offset %d: checksum mismatch", ErrCorrupt, offset)
+		}
+		if err := fn(payload); err != nil {
+			return offset, fmt.Errorf("journal: record at offset %d: %w", offset, err)
+		}
+		offset = end
+	}
+	return offset, nil
 }
 
 func truncate(path string, st Stats, size int64) (Stats, error) {

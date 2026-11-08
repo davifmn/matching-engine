@@ -219,8 +219,8 @@ func (r Reason) String() string {
 
 // Event reports one thing that happened during Submit, Cancel or Modify.
 //
-// For a trade, Order/Side/Leaves describe the incoming (taker) order and Maker/MakerLeaves
-// the resting one; Price is the maker's price.
+// For a trade, Order/Side/Leaves/Owner describe the incoming (taker) order and
+// Maker/MakerLeaves/MakerOwner the resting one; Price is the maker's price.
 type Event struct {
 	Kind        EventKind
 	Reason      Reason  // Rejected and Canceled only
@@ -231,13 +231,18 @@ type Event struct {
 	Leaves      int64 // open quantity of Order after the event
 	Maker       OrderID
 	MakerLeaves int64
+	// Owner and MakerOwner are the accounts of the two sides of a trade (0 = anonymous).
+	// The book reports them so that whoever settles the trade, a drop copy, needs no
+	// order history of its own.
+	Owner      uint64
+	MakerOwner uint64
 }
 
 func (e Event) String() string {
 	switch e.Kind {
 	case EventTrade:
-		return fmt.Sprintf("trade taker=%d %s %d@%d leaves=%d maker=%d makerLeaves=%d",
-			e.Order, e.Side, e.Qty, e.Price, e.Leaves, e.Maker, e.MakerLeaves)
+		return fmt.Sprintf("trade taker=%d %s %d@%d leaves=%d maker=%d makerLeaves=%d accounts=%d/%d",
+			e.Order, e.Side, e.Qty, e.Price, e.Leaves, e.Maker, e.MakerLeaves, e.Owner, e.MakerOwner)
 	case EventRejected, EventCanceled:
 		return fmt.Sprintf("%s id=%d %s %d@%d leaves=%d reason=%s",
 			e.Kind, e.Order, e.Side, e.Qty, e.Price, e.Leaves, e.Reason)

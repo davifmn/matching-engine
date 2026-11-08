@@ -106,7 +106,7 @@ func (r *refBook) match(o *Order) (stopped bool) {
 		q := min(o.Qty, m.Qty)
 		o.Qty -= q
 		m.Qty -= q
-		r.emit(Event{Kind: EventTrade, Order: o.ID, Side: o.Side, Price: m.Price, Qty: q, Leaves: o.Qty, Maker: m.ID, MakerLeaves: m.Qty})
+		r.emit(Event{Kind: EventTrade, Order: o.ID, Side: o.Side, Price: m.Price, Qty: q, Leaves: o.Qty, Maker: m.ID, MakerLeaves: m.Qty, Owner: o.Owner, MakerOwner: m.Owner})
 		if m.Qty == 0 {
 			r.orders = slices.Delete(r.orders, i, i+1)
 		}

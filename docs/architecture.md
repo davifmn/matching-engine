@@ -24,6 +24,8 @@
 | `internal/flow`, `internal/latency` | Synthetic order flow and a latency histogram for benchmarks, tests and `loadgen`. | book |
 | `cmd/matchd` | The server: flags/env config, graceful shutdown. | all of the above |
 | `cmd/loadgen` | HTTP load generator with per-operation latency percentiles. | flow, latency, instrument |
+| `internal/dropcopy` | Follows an instrument's journal (`journal.ReadFrom`), replays it with `engine.Replica`, turns trade events into settlement messages, keeps a cursor. | engine, journal, instrument, metrics |
+| `cmd/dropcopy` | The drop copy process: publishes to Kafka. A separate Go module, so the engine keeps no dependencies. | dropcopy, franz-go |
 
 Only the standard library is used, so there is nothing to audit or update but Go itself.
 `govulncheck` runs in CI.
@@ -72,8 +74,9 @@ Only the standard library is used, so there is nothing to audit or update but Go
   in production it comes from the authenticated session (mTLS or signed requests).
 - **Pre-trade risk.** Credit limits, price collars, maximum order size, kill switches.
   These sit between `api` and `engine`.
-- **Order history.** Only resting orders can be queried. A drop-copy service would consume
-  the event stream into a database for history and reporting.
+- **Order history.** Only resting orders can be queried. The drop copy (ADR 0005) publishes
+  every trade with both accounts; a full order history (fills, cancels, modifies per order)
+  would come from the same journal follower, written to a database.
 - **Snapshots and replication.** See ADR 0004: periodic snapshots bound replay time; a
   follower replaying the leader's journal (and comparing `Digest`) gives a hot standby.
 - **Binary protocols.** HTTP/JSON keeps the project approachable. Exchanges use FIX or

@@ -22,6 +22,12 @@ func trade(taker OrderID, s Side, price, qty, leaves int64, maker OrderID, maker
 	return Event{Kind: EventTrade, Order: taker, Side: s, Price: price, Qty: qty, Leaves: leaves, Maker: maker, MakerLeaves: makerLeaves}
 }
 
+// withAccounts sets the accounts of a trade event: the taker's and the maker's.
+func withAccounts(e Event, taker, maker uint64) Event {
+	e.Owner, e.MakerOwner = taker, maker
+	return e
+}
+
 func canceled(id OrderID, s Side, price, qty int64, r Reason) Event {
 	return Event{Kind: EventCanceled, Reason: r, Order: id, Side: s, Price: price, Qty: qty}
 }
@@ -219,7 +225,7 @@ func TestSelfTradePrevention(t *testing.T) {
 		assertEvents(t, b.Submit(o),
 			accepted(o),
 			canceled(10, Sell, 100, 2, ReasonSelfTrade),
-			trade(20, Buy, 100, 2, 1, 11, 0),
+			withAccounts(trade(20, Buy, 100, 2, 1, 11, 0), 7, 8),
 			rested(20, Buy, 100, 1),
 		)
 		checkInvariants(t, b)
@@ -406,5 +412,26 @@ func TestNoAllocationsInSteadyState(t *testing.T) {
 	}
 	if allocs := testing.AllocsPerRun(1000, cycle); allocs > 0 {
 		t.Errorf("%.1f allocations per cycle, want 0", allocs)
+	}
+}
+
+func TestTradesCarryTheAccountsOfBothSides(t *testing.T) {
+	b := New()
+	b.Submit(Order{ID: 1, Owner: 1001, Side: Buy, Type: Limit, TIF: GTC, Price: 100, Qty: 5})
+	b.Submit(Order{ID: 2, Owner: 1002, Side: Buy, Type: Limit, TIF: GTC, Price: 99, Qty: 5})
+
+	ev := b.Submit(Order{ID: 3, Owner: 2001, Side: Sell, Type: Market, TIF: IOC, Qty: 7})
+
+	assertEvents(t, ev,
+		Event{Kind: EventAccepted, Order: 3, Side: Sell, Qty: 7, Leaves: 7},
+		withAccounts(trade(3, Sell, 100, 5, 2, 1, 0), 2001, 1001),
+		withAccounts(trade(3, Sell, 99, 2, 0, 2, 3), 2001, 1002))
+
+	// A modify that crosses makes the modified order the taker, with its own account.
+	b.Submit(Order{ID: 4, Owner: 3001, Side: Sell, Type: Limit, TIF: GTC, Price: 105, Qty: 1})
+	for _, e := range b.Modify(4, 99, 1) {
+		if e.Kind == EventTrade && (e.Owner != 3001 || e.MakerOwner != 1002) {
+			t.Fatalf("modify trade accounts = %d/%d, want 3001/1002", e.Owner, e.MakerOwner)
+		}
 	}
 }
