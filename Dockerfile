@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build on the runner's own platform and cross-compile: no emulation for arm64 images.
-FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod ./
 COPY . .
